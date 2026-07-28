@@ -123,21 +123,29 @@ def apply_age_filter(img_bgr, intensity):
     return cv2.addWeighted(high_pass_bgr, alpha, img_bgr, 1 - alpha, 0)
 
 # -------------------------------------------------------------------
-# Video Feed & Pipeline
+# Video Feed & Pipeline (Session State Enabled)
 # -------------------------------------------------------------------
 st.write("### Live Camera Feed")
+
+# Initialize session state for captured image
+if "captured_img" not in st.session_state:
+    st.session_state.captured_img = None
+
 camera_file = st.camera_input("Mirror Feed")
 
+# Store photo in session state when taken
 if camera_file is not None:
-    # 1. Convert Streamlit camera input to OpenCV BGR
     pil_img = Image.open(camera_file)
     if mode == "Standard Mirror (Flipped)":
         pil_img = ImageOps.mirror(pil_img)
-        
-    img_np = np.array(pil_img)
+    st.session_state.captured_img = np.array(pil_img)
+
+# Process photo if present in session state
+if st.session_state.captured_img is not None:
+    img_np = st.session_state.captured_img.copy()
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-    # 2. Process AR overlays when Apply button is clicked
+    # Execute transformations when button is clicked
     if apply_button:
         with st.spinner("Applying AI alterations..."):
             with mp_face_mesh.FaceMesh(
@@ -161,7 +169,9 @@ if camera_file is not None:
                         img_bgr = apply_glasses_overlay(img_bgr, landmarks)
                         
                     img_bgr = apply_age_filter(img_bgr, age_shift)
+                else:
+                    st.warning("No face detected in frame. Try adjusting lighting or moving closer.")
 
-    # 3. Render Output Frame
+    # Render Output Frame
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     st.image(img_rgb, caption="Transformed Output", use_container_width=True)

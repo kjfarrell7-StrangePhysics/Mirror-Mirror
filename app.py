@@ -1,17 +1,16 @@
 import streamlit as st
-from PIL import Image, ImageOps, ImageDraw
 import numpy as np
+import cv2
 import mediapipe as mp
-import replicate
-import io
+from PIL import Image, ImageOps
 
 # -------------------------------------------------------------------
-# Page Config
+# Page Setup
 # -------------------------------------------------------------------
-st.set_page_config(page_title="AI Mirror App", page_icon="🪞", layout="centered")
-st.title("🪞 AI Mirror")
+st.set_page_config(page_title="AI Live Mirror", page_icon="🪞", layout="centered")
+st.title("🪞 AI Live Mirror")
 
-# Initialize MediaPipe Face Mesh Solutions
+# Initialize MediaPipe Face Mesh
 mp_face_mesh = mp.solutions.face_mesh
 
 # -------------------------------------------------------------------
@@ -19,101 +18,144 @@ mp_face_mesh = mp.solutions.face_mesh
 # -------------------------------------------------------------------
 st.sidebar.header("🪞 Viewport Settings")
 mode = st.sidebar.radio(
-    "Mirror Mode:",
+    "Mirror View:",
     ["Standard Mirror (Flipped)", "True View (How others see you)"]
 )
 
-st.sidebar.header("🕸️ Face Landmark Tracking")
-show_landmarks = st.sidebar.checkbox("Show Eye & Face Landmarks", value=False)
+st.sidebar.header("🎨 Live AR Alterations")
 
-st.sidebar.header("✨ Generative AI Transformations")
-ai_mode = st.sidebar.selectbox("AI Transformation:", ["None", "Age Transformation", "Gender Swap"])
+# Hair Color
+hair_color = st.sidebar.selectbox(
+    "Hair Color:",
+    ["Natural", "Blue", "Green", "Red", "Black", "Grey"]
+)
 
-target_age = 70
-gender_target = "masculine"
+# Eye Color
+eye_color = st.sidebar.selectbox(
+    "Eye Color:",
+    ["Natural", "Blue", "Green", "Red", "Brown"]
+)
 
-if ai_mode == "Age Transformation":
-    target_age = st.sidebar.slider("Target Age:", 10, 90, 70)
-elif ai_mode == "Gender Swap":
-    gender_target = st.sidebar.radio("Target Gender Style:", ["masculine", "feminine"])
+# Facial Accessories & Features
+add_glasses = st.sidebar.checkbox("🕶️ Glasses", value=False)
+add_mustache = st.sidebar.checkbox("👨 Mustache", value=False)
+add_beard = st.sidebar.checkbox("🧔 Beard", value=False)
+
+# Age Filter
+age_shift = st.sidebar.slider("👵 Age Shift (Wrinkle & Tone Filter):", 0, 100, 0)
 
 # -------------------------------------------------------------------
-# Helpers
+# Helper Overlay Functions
 # -------------------------------------------------------------------
-def draw_landmarks_pil(pil_img):
-    """Draws iris facial points on PIL Image using MediaPipe."""
-    img_np = np.array(pil_img)
-    height, width, _ = img_np.shape
+COLOR_MAP = {
+    "Blue": (255, 120, 30),
+    "Green": (30, 200, 50),
+    "Red": (50, 30, 230),
+    "Black": (20, 20, 20),
+    "Grey": (180, 180, 180),
+    "Brown": (40, 75, 120)
+}
+
+def apply_eye_recolor(img_bgr, landmarks, color_name):
+    if color_name == "Natural":
+        return img_bgr
     
-    draw_img = pil_img.copy()
-    draw = ImageDraw.Draw(draw_img)
+    h, w, _ = img_bgr.shape
+    # Left and Right Iris Indices in MediaPipe Refined Mesh
+    left_iris = [468, 469, 470, 471, 472]
+    right_iris = [473, 474, 475, 476, 477]
+    
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for iris_pts in [left_iris, right_iris]:
+        pts = np.array([(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in iris_pts], np.int32)
+        cv2.fillConvexPoly(mask, pts, 255)
+        
+    color_bgr = COLOR_MAP[color_name]
+    overlay = img_bgr.copy()
+    overlay[mask == 255] = color_bgr
+    return cv2.addWeighted(overlay, 0.6, img_bgr, 0.4, 0)
 
+def apply_facial_hair(img_bgr, landmarks, mustache=False, beard=False):
+    h, w, _ = img_bgr.shape
+    overlay = img_bgr.copy()
+    
+    if mustache:
+        # Upper Lip Outer Contour
+        stache_pts = [0, 37, 39, 40, 185, 61, 146, 91, 181, 84, 17]
+        pts = np.array([(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in stache_pts], np.int32)
+        cv2.fillPoly(overlay, [pts], (30, 30, 30))
+        
+    if beard:
+        # Jawline Contour
+        jaw_pts = [152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10]
+        pts = np.array([(int(landmarks[i].x * w), int(landmarks[i].y * h)) for i in jaw_pts], np.int32)
+        cv2.fillPoly(overlay, [pts], (30, 30, 30))
+        
+    return cv2.addWeighted(overlay, 0.75, img_bgr, 0.25, 0)
+
+def apply_glasses_overlay(img_bgr, landmarks):
+    h, w, _ = img_bgr.shape
+    # Left eye center ~33, Right eye center ~263
+    p1 = (int(landmarks[33].x * w), int(landmarks[33].y * h))
+    p2 = (int(landmarks[263].x * w), int(landmarks[263].y * h))
+    
+    radius = int(np.linalg.norm(np.array(p1) - np.array(p2)) / 3)
+    
+    cv2.circle(img_bgr, p1, radius, (20, 20, 20), 4)
+    cv2.circle(img_bgr, p2, radius, (20, 20, 20), 4)
+    cv2.line(img_bgr, (p1[0] + radius, p1[1]), (p2[0] - radius, p2[1]), (20, 20, 20), 4)
+    return img_bgr
+
+def apply_age_filter(img_bgr, intensity):
+    if intensity == 0:
+        return img_bgr
+    # High-pass filter emulation for skin texture contrast (wrinkle simulation)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (0, 0), 3)
+    high_pass = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+    high_pass_bgr = cv2.cvtColor(high_pass, cv2.COLOR_GRAY2BGR)
+    
+    alpha = (intensity / 100.0) * 0.5
+    return cv2.addWeighted(high_pass_bgr, alpha, img_bgr, 1 - alpha, 0)
+
+# -------------------------------------------------------------------
+# Video Feed & Pipeline
+# -------------------------------------------------------------------
+st.write("### Live Camera Feed")
+camera_file = st.camera_input("Mirror Feed")
+
+if camera_file is not None:
+    # 1. Convert Streamlit camera input to OpenCV BGR
+    pil_img = Image.open(camera_file)
+    if mode == "Standard Mirror (Flipped)":
+        pil_img = ImageOps.mirror(pil_img)
+        
+    img_np = np.array(pil_img)
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+    # 2. MediaPipe Landmark Processing
     with mp_face_mesh.FaceMesh(
         static_image_mode=True,
         max_num_faces=1,
         refine_landmarks=True,
         min_detection_confidence=0.5
     ) as face_mesh:
-        results = face_mesh.process(img_np)
+        results = face_mesh.process(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
         
         if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                # Draw Iris & Eye Landmark Points
-                for idx in range(468, 478):
-                    pt = face_landmarks.landmark[idx]
-                    x, y = int(pt.x * width), int(pt.y * height)
-                    draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill="#00FFC8")
-                    
-    return draw_img
+            landmarks = results.multi_face_landmarks[0].landmark
+            
+            # Apply Transformations in Real-Time
+            img_bgr = apply_eye_recolor(img_bgr, landmarks, eye_color)
+            
+            if add_mustache or add_beard:
+                img_bgr = apply_facial_hair(img_bgr, landmarks, mustache=add_mustache, beard=add_beard)
+                
+            if add_glasses:
+                img_bgr = apply_glasses_overlay(img_bgr, landmarks)
+                
+            img_bgr = apply_age_filter(img_bgr, age_shift)
 
-def run_ai_transformation(pil_img, transform_type, age_val, gender_val):
-    buffer = io.BytesIO()
-    pil_img.save(buffer, format="PNG")
-    buffer.seek(0)
-
-    try:
-        if transform_type == "Age Transformation":
-            output = replicate.run(
-                "yuval-alaluf/sam:9222a21c4421e0730221612ce5710f0e9f495b7cceed00a4cd8465105a372008",
-                input={"image": buffer, "target_age": age_val}
-            )
-            return output
-        elif transform_type == "Gender Swap":
-            output = replicate.run(
-                "easel/advanced-face-swap:latest",
-                input={"swap_image": buffer, "mode": gender_val}
-            )
-            return output
-    except Exception as e:
-        st.error(f"Replicate API Error: {e}")
-        return None
-
-# -------------------------------------------------------------------
-# Camera Viewport & Pipeline
-# -------------------------------------------------------------------
-st.write("Take a snapshot to preview True View and AI transformations:")
-camera_file = st.camera_input("Mirror Feed")
-
-if camera_file is not None:
-    # 1. Load Image
-    image = Image.open(camera_file)
-
-    # 2. Handle Flip / True View
-    if mode == "Standard Mirror (Flipped)":
-        image = ImageOps.mirror(image)
-
-    # 3. Optional Landmarks Overlay
-    if show_landmarks:
-        image = draw_landmarks_pil(image)
-
-    # 4. Render Main Output
-    st.image(image, caption=f"Viewport: {mode}", use_container_width=True)
-
-    # 5. Process AI Transformations
-    if ai_mode != "None":
-        if st.button("🚀 Process AI Transformation"):
-            with st.spinner("Synthesizing transformation..."):
-                result_url = run_ai_transformation(Image.open(camera_file), ai_mode, target_age, gender_target)
-                if result_url:
-                    st.success("Transformation Complete!")
-                    st.image(result_url, caption="AI Transformed Result", use_container_width=True)
+    # 3. Render Output Frame
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    st.image(img_rgb, caption="Transformed Live Output", use_container_width=True)

@@ -2,7 +2,7 @@ import streamlit as st
 from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import mediapipe as mp
-import mediapipe.python.solutions.face_mesh as mp_face_mesh
+from mediapipe.solutions import face_mesh as mp_face_mesh
 import replicate
 import io
 

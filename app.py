@@ -1,7 +1,6 @@
 import streamlit as st
-import cv2
+from PIL import Image, ImageOps
 import numpy as np
-from PIL import Image
 import mediapipe as mp
 import replicate
 import io
@@ -9,13 +8,8 @@ import io
 # -------------------------------------------------------------------
 # Page Config
 # -------------------------------------------------------------------
-st.set_page_config(page_title="AI Mirror & Face Mesh App", page_icon="🪞", layout="centered")
-st.title("🪞 AI Mirror with MediaPipe Mesh Tracking")
-
-# Initialize MediaPipe Face Mesh & Drawing Utilities
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+st.set_page_config(page_title="AI Mirror App", page_icon="🪞", layout="centered")
+st.title("🪞 AI Mirror")
 
 # -------------------------------------------------------------------
 # Sidebar Controls
@@ -24,13 +18,6 @@ st.sidebar.header("🪞 Viewport Settings")
 mode = st.sidebar.radio(
     "Mirror Mode:",
     ["Standard Mirror (Flipped)", "True View (How others see you)"]
-)
-
-st.sidebar.header("🕸️ MediaPipe Facial Mesh")
-show_mesh = st.sidebar.checkbox("Draw Face Mesh Topology", value=True)
-mesh_style = st.sidebar.selectbox(
-    "Mesh Style:",
-    ["Tesselation (Full Wireframe)", "Face Contours", "Irises & Eyes Only"]
 )
 
 st.sidebar.header("✨ Generative AI Transformations")
@@ -45,53 +32,9 @@ elif ai_mode == "Gender Swap":
     gender_target = st.sidebar.radio("Target Gender Style:", ["masculine", "feminine"])
 
 # -------------------------------------------------------------------
-# MediaPipe Mesh Processing Helper
+# Helper: Replicate AI API
 # -------------------------------------------------------------------
-def process_face_mesh(img_rgb, style_mode):
-    """Processes frame with MediaPipe Face Mesh and renders requested landmark overlay."""
-    annotated_img = img_rgb.copy()
-    
-    # Initialize FaceMesh task (refine_landmarks=True enables 478 points including irises)
-    with mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5
-    ) as face_mesh:
-        results = face_mesh.process(img_rgb)
-        
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                if style_mode == "Tesselation (Full Wireframe)":
-                    mp_drawing.draw_landmarks(
-                        image=annotated_img,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_TESSELATION,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
-                    )
-                elif style_mode == "Face Contours":
-                    mp_drawing.draw_landmarks(
-                        image=annotated_img,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_CONTOURS,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_contours_style()
-                    )
-                elif style_mode == "Irises & Eyes Only":
-                    # Render Irises if available
-                    mp_drawing.draw_landmarks(
-                        image=annotated_img,
-                        landmark_list=face_landmarks,
-                        connections=mp_face_mesh.FACEMESH_IRISES,
-                        landmark_drawing_spec=None,
-                        connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_iris_connections_style()
-                    )
-    
-    return annotated_img
-
 def run_ai_transformation(pil_img, transform_type, age_val, gender_val):
-    """Encodes snapshot and dispatches to Replicate API."""
     buffer = io.BytesIO()
     pil_img.save(buffer, format="PNG")
     buffer.seek(0)
@@ -114,30 +57,23 @@ def run_ai_transformation(pil_img, transform_type, age_val, gender_val):
         return None
 
 # -------------------------------------------------------------------
-# Main Camera Feed Pipeline
+# Main Camera Input Pipeline
 # -------------------------------------------------------------------
-st.write("Take a snapshot to preview True View, MediaPipe mesh tracking, and AI transforms:")
+st.write("Take a snapshot to preview True View and AI transformations:")
 camera_file = st.camera_input("Mirror Feed")
 
 if camera_file is not None:
-    # 1. Convert snapshot to numpy RGB
+    # 1. Open image with PIL
     image = Image.open(camera_file)
-    img_np = np.array(image)
 
-    # 2. Mirroring logic (Streamlit camera output defaults to raw un-mirrored mode)
+    # 2. Perform Horizontal Flip via ImageOps (No OpenCV required!)
     if mode == "Standard Mirror (Flipped)":
-        img_np = cv2.flip(img_np, 1)
+        image = ImageOps.mirror(image)
 
-    # 3. Apply MediaPipe Face Mesh if enabled
-    if show_mesh:
-        img_np = process_face_mesh(img_np, mesh_style)
+    # 3. Render Mirror View
+    st.image(image, caption=f"Viewport: {mode}", use_container_width=True)
 
-    final_pil = Image.fromarray(img_np)
-
-    # 4. Render Main Output
-    st.image(final_pil, caption=f"Viewport: {mode} | Filter: {mesh_style if show_mesh else 'Clean'}", use_container_width=True)
-
-    # 5. Cloud AI Trigger
+    # 4. Process AI Transformation on clean original snapshot
     if ai_mode != "None":
         if st.button("🚀 Process AI Transformation"):
             with st.spinner("Synthesizing transformation..."):

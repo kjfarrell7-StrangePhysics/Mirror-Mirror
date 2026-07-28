@@ -2,7 +2,6 @@ import streamlit as st
 from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import mediapipe as mp
-from mediapipe.solutions import face_mesh as mp_face_mesh
 import replicate
 import io
 
@@ -11,6 +10,9 @@ import io
 # -------------------------------------------------------------------
 st.set_page_config(page_title="AI Mirror App", page_icon="🪞", layout="centered")
 st.title("🪞 AI Mirror")
+
+# Initialize MediaPipe Face Mesh Solutions
+mp_face_mesh = mp.solutions.face_mesh
 
 # -------------------------------------------------------------------
 # Sidebar Controls
@@ -39,7 +41,7 @@ elif ai_mode == "Gender Swap":
 # Helpers
 # -------------------------------------------------------------------
 def draw_landmarks_pil(pil_img):
-    """Draws facial points on PIL Image using MediaPipe."""
+    """Draws iris facial points on PIL Image using MediaPipe."""
     img_np = np.array(pil_img)
     height, width, _ = img_np.shape
     

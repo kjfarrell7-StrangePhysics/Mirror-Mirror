@@ -1,6 +1,5 @@
 streamlit>=1.30.0
 pillow
 numpy
-mediapipe==0.10.21
-opencv-python-headless
+mediapipe
 replicate

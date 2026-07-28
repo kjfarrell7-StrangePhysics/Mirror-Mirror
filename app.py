@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import mediapipe as mp
+import mediapipe.python.solutions.face_mesh as mp_face_mesh
 import replicate
 import io
 
@@ -10,9 +11,6 @@ import io
 # -------------------------------------------------------------------
 st.set_page_config(page_title="AI Mirror App", page_icon="🪞", layout="centered")
 st.title("🪞 AI Mirror")
-
-# Initialize MediaPipe Face Mesh
-mp_face_mesh = mp.solutions.face_mesh
 
 # -------------------------------------------------------------------
 # Sidebar Controls
@@ -58,7 +56,7 @@ def draw_landmarks_pil(pil_img):
         
         if results.multi_face_landmarks:
             for face_landmarks in results.multi_face_landmarks:
-                # Draw Iris/Pupil Points
+                # Draw Iris & Eye Landmark Points
                 for idx in range(468, 478):
                     pt = face_landmarks.landmark[idx]
                     x, y = int(pt.x * width), int(pt.y * height)

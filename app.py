@@ -44,6 +44,10 @@ add_beard = st.sidebar.checkbox("🧔 Beard", value=False)
 # Age Filter
 age_shift = st.sidebar.slider("👵 Age Shift (Wrinkle & Tone Filter):", 0, 100, 0)
 
+# Action Button
+st.sidebar.markdown("---")
+apply_button = st.sidebar.button("⚡ Apply AI Transformations", type="primary", use_container_width=True)
+
 # -------------------------------------------------------------------
 # Helper Overlay Functions
 # -------------------------------------------------------------------
@@ -133,29 +137,31 @@ if camera_file is not None:
     img_np = np.array(pil_img)
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-    # 2. MediaPipe Landmark Processing
-    with mp_face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5
-    ) as face_mesh:
-        results = face_mesh.process(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-        
-        if results.multi_face_landmarks:
-            landmarks = results.multi_face_landmarks[0].landmark
-            
-            # Apply Transformations in Real-Time
-            img_bgr = apply_eye_recolor(img_bgr, landmarks, eye_color)
-            
-            if add_mustache or add_beard:
-                img_bgr = apply_facial_hair(img_bgr, landmarks, mustache=add_mustache, beard=add_beard)
+    # 2. Process AR overlays when Apply button is clicked
+    if apply_button:
+        with st.spinner("Applying AI alterations..."):
+            with mp_face_mesh.FaceMesh(
+                static_image_mode=True,
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5
+            ) as face_mesh:
+                results = face_mesh.process(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
                 
-            if add_glasses:
-                img_bgr = apply_glasses_overlay(img_bgr, landmarks)
-                
-            img_bgr = apply_age_filter(img_bgr, age_shift)
+                if results.multi_face_landmarks:
+                    landmarks = results.multi_face_landmarks[0].landmark
+                    
+                    # Apply Selected Transformations
+                    img_bgr = apply_eye_recolor(img_bgr, landmarks, eye_color)
+                    
+                    if add_mustache or add_beard:
+                        img_bgr = apply_facial_hair(img_bgr, landmarks, mustache=add_mustache, beard=add_beard)
+                        
+                    if add_glasses:
+                        img_bgr = apply_glasses_overlay(img_bgr, landmarks)
+                        
+                    img_bgr = apply_age_filter(img_bgr, age_shift)
 
     # 3. Render Output Frame
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    st.image(img_rgb, caption="Transformed Live Output", use_container_width=True)
+    st.image(img_rgb, caption="Transformed Output", use_container_width=True)

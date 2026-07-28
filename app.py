@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import mediapipe as mp
 import replicate
@@ -11,6 +11,9 @@ import io
 st.set_page_config(page_title="AI Mirror App", page_icon="🪞", layout="centered")
 st.title("🪞 AI Mirror")
 
+# Initialize MediaPipe Face Mesh
+mp_face_mesh = mp.solutions.face_mesh
+
 # -------------------------------------------------------------------
 # Sidebar Controls
 # -------------------------------------------------------------------
@@ -19,6 +22,9 @@ mode = st.sidebar.radio(
     "Mirror Mode:",
     ["Standard Mirror (Flipped)", "True View (How others see you)"]
 )
+
+st.sidebar.header("🕸️ Face Landmark Tracking")
+show_landmarks = st.sidebar.checkbox("Show Eye & Face Landmarks", value=False)
 
 st.sidebar.header("✨ Generative AI Transformations")
 ai_mode = st.sidebar.selectbox("AI Transformation:", ["None", "Age Transformation", "Gender Swap"])
@@ -32,8 +38,34 @@ elif ai_mode == "Gender Swap":
     gender_target = st.sidebar.radio("Target Gender Style:", ["masculine", "feminine"])
 
 # -------------------------------------------------------------------
-# Helper: Replicate AI API
+# Helpers
 # -------------------------------------------------------------------
+def draw_landmarks_pil(pil_img):
+    """Draws facial points on PIL Image using MediaPipe."""
+    img_np = np.array(pil_img)
+    height, width, _ = img_np.shape
+    
+    draw_img = pil_img.copy()
+    draw = ImageDraw.Draw(draw_img)
+
+    with mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5
+    ) as face_mesh:
+        results = face_mesh.process(img_np)
+        
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                # Draw Iris/Pupil Points
+                for idx in range(468, 478):
+                    pt = face_landmarks.landmark[idx]
+                    x, y = int(pt.x * width), int(pt.y * height)
+                    draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill="#00FFC8")
+                    
+    return draw_img
+
 def run_ai_transformation(pil_img, transform_type, age_val, gender_val):
     buffer = io.BytesIO()
     pil_img.save(buffer, format="PNG")
@@ -57,23 +89,27 @@ def run_ai_transformation(pil_img, transform_type, age_val, gender_val):
         return None
 
 # -------------------------------------------------------------------
-# Main Camera Input Pipeline
+# Camera Viewport & Pipeline
 # -------------------------------------------------------------------
 st.write("Take a snapshot to preview True View and AI transformations:")
 camera_file = st.camera_input("Mirror Feed")
 
 if camera_file is not None:
-    # 1. Open image with PIL
+    # 1. Load Image
     image = Image.open(camera_file)
 
-    # 2. Perform Horizontal Flip via ImageOps (No OpenCV required!)
+    # 2. Handle Flip / True View
     if mode == "Standard Mirror (Flipped)":
         image = ImageOps.mirror(image)
 
-    # 3. Render Mirror View
+    # 3. Optional Landmarks Overlay
+    if show_landmarks:
+        image = draw_landmarks_pil(image)
+
+    # 4. Render Main Output
     st.image(image, caption=f"Viewport: {mode}", use_container_width=True)
 
-    # 4. Process AI Transformation on clean original snapshot
+    # 5. Process AI Transformations
     if ai_mode != "None":
         if st.button("🚀 Process AI Transformation"):
             with st.spinner("Synthesizing transformation..."):

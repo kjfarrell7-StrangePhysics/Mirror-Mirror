@@ -16,7 +16,7 @@ logging.getLogger("aiortc").setLevel(logging.ERROR)
 logging.getLogger("streamlit_webrtc").setLevel(logging.ERROR)
 
 
-# Handle background socket cleanups safely
+# Catch background network cleanup silently so it won't crash
 def suppress_async_errors():
     try:
         loop = asyncio.get_event_loop()
@@ -57,7 +57,7 @@ with col1:
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
 
-    # Simple Canny edge filter demo
+    # Edge detection filter
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, thresh1, thresh2)
     img_processed = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
@@ -65,7 +65,7 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     return av.VideoFrame.from_ndarray(img_processed, format="bgr24")
 
 
-# STUN + TURN Relay Configuration to bypass cloud firewall blocks
+# Relay config to pass video through Streamlit Cloud firewall
 RTC_CONFIG = RTCConfiguration(
     {
         "iceServers": [

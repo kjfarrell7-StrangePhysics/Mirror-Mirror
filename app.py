@@ -76,16 +76,18 @@ if camera_file is not None:
         if "REPLICATE_API_TOKEN" not in os.environ:
             st.error("Missing Replicate API Token! Please add REPLICATE_API_TOKEN to your Streamlit App Secrets.")
         else:
-            with st.spinner(f"AI is re-imagining your photo ({transformation_prompt})..."):
+            with st.spinner(f"AI is re-imagining your photo..."):
                 try:
-                    # Run Image-to-Image Diffusion Model on Replicate
+                    # Model identifier with explicit hash version
+                    model_id = "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d"
+                    
                     output = replicate.run(
-                        "stabilityai/stable-diffusion-img2img",
+                        model_id,
                         input={
                             "image": camera_file,
                             "prompt": f"Photorealistic portrait of the same person, {transformation_prompt}, high resolution, natural lighting, highly detailed face",
                             "negative_prompt": "blurry, distorted face, extra limbs, bad proportions, low quality, cartoon, drawing",
-                            "strength": 0.55  # Preserves ~45% of original face shape while changing style/age/hair
+                            "prompt_strength": 0.55  # Preserves facial structure while applying modifications
                         }
                     )
                     

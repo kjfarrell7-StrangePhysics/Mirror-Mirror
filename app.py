@@ -1,97 +1,62 @@
-import asyncio
-import os
-
-# -----------------------------------------------------------------------------
-# 1. Suppress C++ / MediaPipe Logging Noise in Stderr
-# -----------------------------------------------------------------------------
-os.environ["GLOG_minloglevel"] = "2"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
+import logging
+import av
 import cv2
-import numpy as np
 import streamlit as st
-from streamlit_webrtc import RTCConfiguration, VideoProcessorBase, webrtc_streamer
-
-
-# -----------------------------------------------------------------------------
-# 2. Suppress Async Socket Teardown Errors (aioice / aiortc cleanup race)
-# -----------------------------------------------------------------------------
-def suppress_webrtc_async_errors():
-    try:
-        loop = asyncio.get_event_loop()
-
-        def custom_exception_handler(loop, context):
-            exception = context.get("exception")
-            msg = str(context.get("message", ""))
-            err_str = str(exception) if exception else ""
-
-            # Intercept socket teardown errors when a WebRTC session closes
-            if (
-                "sendto" in err_str
-                or "call_exception_handler" in err_str
-                or "sendto" in msg
-            ):
-                return
-
-            loop.default_exception_handler(context)
-
-        loop.set_exception_handler(custom_exception_handler)
-    except Exception:
-        pass
-
-
-suppress_webrtc_async_errors()
+from streamlit_webrtc import RTCConfiguration, WebRtcMode, webrtc_streamer
 
 # -----------------------------------------------------------------------------
-# 3. Streamlit Page Configuration & WebRTC Setup
+# 1. Page Configuration
 # -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Interactive AI Mirror", page_icon="🪞", layout="wide"
-)
-
+st.set_page_config(page_title="Interactive AI Mirror", page_icon="🪞", layout="wide")
 st.title("🪞 Interactive Real-Time Mirror")
 
-# STUN server setup to prevent ICE connection hangs in Streamlit Cloud
+# Mute noisy WebRTC loggers without breaking the asyncio loop
+logging.getLogger("aioice").setLevel(logging.WARNING)
+logging.getLogger("aiortc").setLevel(logging.WARNING)
+logging.getLogger("streamlit_webrtc").setLevel(logging.WARNING)
+
+# -----------------------------------------------------------------------------
+# 2. Controls & Interactive Parameters
+# -----------------------------------------------------------------------------
+col_ctrl, col_info = st.columns([1, 2])
+
+with col_ctrl:
+    st.subheader("Controls")
+    threshold1 = st.slider("Canny Threshold 1", 0, 500, 100)
+    threshold2 = st.slider("Canny Threshold 2", 0, 500, 200)
+
+# -----------------------------------------------------------------------------
+# 3. Frame Processing Callback (Thread-Safe)
+# -----------------------------------------------------------------------------
+def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
+    # Convert PyAV video frame to standard OpenCV BGR image
+    img = frame.to_ndarray(format="bgr24")
+
+    # Simple processing pipeline
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, threshold1, threshold2)
+    img_processed = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+
+    # Return as an av.VideoFrame object
+    return av.VideoFrame.from_ndarray(img_processed, format="bgr24")
+
+# -----------------------------------------------------------------------------
+# 4. Streamer Instance
+# -----------------------------------------------------------------------------
 RTC_CONFIG = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+        ]
+    }
 )
 
-
-# Video Processing Logic
-class VideoTransformer(VideoProcessorBase):
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-
-        # Example image processing pipeline (OpenCV / MediaPipe)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 100, 200)
-        img = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-
-        return frame.from_ndarray(img, format="bgr24")
-
-
-# WebRTC Streamer
 webrtc_streamer(
     key="mirror-stream",
+    mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIG,
-    video_processor_factory=VideoTransformer,
+    video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
-
-# -----------------------------------------------------------------------------
-# 4. Streamlit Layout Components (Updated to modern width parameters)
-# -----------------------------------------------------------------------------
-st.divider()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Controls & Settings")
-    st.slider("Filter Intensity", 0, 100, 50)
-
-with col2:
-    st.subheader("System Status")
-    # Updated to width="stretch" to comply with latest Streamlit layout standards
-    st.info("Streamer initialized with fallback STUN candidate gathering.")

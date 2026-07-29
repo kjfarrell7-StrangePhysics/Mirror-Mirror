@@ -20,7 +20,7 @@ with col1:
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     img = frame.to_ndarray(format="bgr24")
 
-    # Image Processing Pipeline
+    # Image Processing
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, thresh1, thresh2)
     img_processed = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
@@ -29,7 +29,12 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
 
 
 RTC_CONFIG = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+        ]
+    }
 )
 
 with col2:
